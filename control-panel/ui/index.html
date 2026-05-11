@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PowerSentry - Infrastructure Power Monitoring</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- DaisyUI -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.7.2/dist/full.min.css" rel="stylesheet" type="text/css" />
+    
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.3s;
+        }
+        .fade-enter-from, .fade-leave-to {
+            opacity: 0;
+        }
+    </style>
+</head>
+<body class="bg-base-200 min-h-screen">
+    <div id="app">
+        <!-- Navbar -->
+        <div class="navbar bg-base-100 shadow-lg">
+            <div class="flex-1">
+                <a class="btn btn-ghost text-xl">
+                    ⚡ PowerSentry
+                </a>
+            </div>
+            <div class="flex-none">
+                <button class="btn btn-sm btn-ghost" @click="refreshData">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="container mx-auto p-4">
+            <!-- Stats Overview -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="stats shadow bg-primary text-primary-content">
+                    <div class="stat">
+                        <div class="stat-title">Total Workers</div>
+                        <div class="stat-value text-3xl">{{ workers.length }}</div>
+                        <div class="stat-desc">Connected agents</div>
+                    </div>
+                </div>
+
+                <div class="stats shadow bg-secondary text-secondary-content">
+                    <div class="stat">
+                        <div class="stat-title">Total Power</div>
+                        <div class="stat-value text-3xl">{{ totalPower }}W</div>
+                        <div class="stat-desc">Combined usage</div>
+                    </div>
+                </div>
+
+                <div class="stats shadow bg-accent text-accent-content">
+                    <div class="stat">
+                        <div class="stat-title">Year Cost</div>
+                        <div class="stat-value text-3xl">€{{ yearlyCost }}</div>
+                        <div class="stat-desc">Estimated</div>
+                    </div>
+                </div>
+
+                <div class="stats shadow bg-info text-info-content">
+                    <div class="stat">
+                        <div class="stat-title">Efficiency</div>
+                        <div class="stat-value text-3xl">{{ efficiency }}%</div>
+                        <div class="stat-desc">Avg CPU usage</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Workers Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div v-for="worker in workers" :key="worker.id" class="card bg-base-100 shadow-xl">
+                    <div class="card-body">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h2 class="card-title">
+                                    {{ worker.hostname }}
+                                    <div class="badge" :class="worker.status === 'online' ? 'badge-success' : 'badge-error'">
+                                        {{ worker.status }}
+                                    </div>
+                                </h2>
+                                <p class="text-sm opacity-70">{{ worker.ip_address }}</p>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-2xl font-bold">{{ getWorkerPower(worker.id) }}W</div>
+                                <div class="text-xs opacity-70">Current Power</div>
+                            </div>
+                        </div>
+                        
+                        <div class="divider"></div>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <div class="text-sm opacity-70">CPU Usage</div>
+                                <progress class="progress progress-primary w-full" :value="getWorkerCpu(worker.id)" max="100"></progress>
+                                <div class="text-xs mt-1">{{ getWorkerCpu(worker.id) }}%</div>
+                            </div>
+                            <div>
+                                <div class="text-sm opacity-70">RAM Usage</div>
+                                <progress class="progress progress-secondary w-full" :value="getWorkerRam(worker.id)" max="100"></progress>
+                                <div class="text-xs mt-1">{{ getWorkerRam(worker.id) }}%</div>
+                            </div>
+                        </div>
+                        
+                        <div class="card-actions justify-end mt-4">
+                            <button class="btn btn-sm btn-outline" @click="showWorkerDetails(worker.id)">Details</button>
+                            <button class="btn btn-sm btn-primary" @click="projectWorkerCost(worker.id, 14)">Project 14d</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Empty State -->
+            <div v-if="workers.length === 0" class="text-center py-20">
+                <div class="text-6xl mb-4">🔌</div>
+                <h3 class="text-xl font-semibold mb-2">No Workers Connected</h3>
+                <p class="opacity-70">Deploy worker agents to start monitoring power consumption</p>
+            </div>
+        </div>
+
+        <!-- Worker Details Modal -->
+        <dialog class="modal" :class="{ 'modal-open': showDetailsModal }">
+            <div class="modal-box w-11/12 max-w-4xl">
+                <h3 class="font-bold text-lg mb-4">{{ selectedWorker?.hostname }} - Details</h3>
+                
+                <div v-if="selectedWorkerMetrics.length > 0">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div class="stat bg-base-200">
+                            <div class="stat-title">Average Power</div>
+                            <div class="stat-value">{{ avgWorkerPower }}W</div>
+                        </div>
+                        <div class="stat bg-base-200">
+                            <div class="stat-title">Total Cost (24h)</div>
+                            <div class="stat-value">€{{ workerDailyCost }}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="h-64">
+                        <canvas id="powerChart"></canvas>
+                    </div>
+                </div>
+                <div v-else class="text-center py-8 opacity-70">
+                    No metrics available yet
+                </div>
+                
+                <div class="modal-action">
+                    <button class="btn" @click="showDetailsModal = false">Close</button>
+                </div>
+            </div>
+        </dialog>
+
+        <!-- Projection Modal -->
+        <dialog class="modal" :class="{ 'modal-open': showProjectionModal }">
+            <div class="modal-box">
+                <h3 class="font-bold text-lg mb-4">Cost Projection</h3>
+                <div v-if="projectionData">
+                    <div class="stat bg-primary text-primary-content mb-4">
+                        <div class="stat-title">{{ projectionData.period_days }} Days</div>
+                        <div class="stat-value">€{{ projectionData.totalCostFormatted }}</div>
+                        <div class="stat-desc">{{ projectionData.avgDailyCostFormatted }}</div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="stat bg-base-200">
+                            <div class="stat-title">Peak Hours</div>
+                            <div class="stat-value">{{ projectionData.peakCostFormatted }}</div>
+                        </div>
+                        <div class="stat bg-base-200">
+                            <div class="stat-title">Off-Peak Hours</div>
+                            <div class="stat-value">{{ projectionData.offPeakCostFormatted }}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <div class="text-sm opacity-70">Confidence: {{ projectionData.confidence }}</div>
+                        <div class="text-sm opacity-70">Method: {{ projectionData.method }}</div>
+                    </div>
+                </div>
+                <div class="modal-action">
+                    <button class="btn" @click="showProjectionModal = false">Close</button>
+                </div>
+            </div>
+        </dialog>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted, nextTick } = Vue;
+
+        createApp({
+            setup() {
+                const workers = ref([]);
+                const workerMetrics = ref({});
+                const showDetailsModal = ref(false);
+                const showProjectionModal = ref(false);
+                const selectedWorker = ref(null);
+                const projectionData = ref(null);
+                let chartInstance = null;
+
+                const totalPower = computed(() => {
+                    if (workers.value.length === 0) return '0.0';
+                    const total = workers.value.reduce((sum, worker) => {
+                        const metrics = workerMetrics.value[worker.id];
+                        const power = metrics && metrics.length > 0 ? metrics[0]?.power_watts || 0 : 0;
+                        return sum + power;
+                    }, 0);
+                    return total.toFixed(1);
+                });
+
+                const totalDailyCost = computed(() => {
+                    if (workers.value.length === 0) return '0.00';
+                    let totalCostPerMin = 0;
+                    workers.value.forEach(worker => {
+                        const metrics = workerMetrics.value[worker.id];
+                        if (metrics && metrics.length > 0) {
+                            const avgCost = metrics.reduce((sum, m) => sum + (m.cost || 0), 0) / metrics.length;
+                            totalCostPerMin += avgCost;
+                        }
+                    });
+                    const dailyCost = totalCostPerMin * 60 * 24;
+                    return dailyCost.toFixed(2);
+                });
+
+                const yearlyCost = computed(() => {
+                    const daily = parseFloat(totalDailyCost.value);
+                    if (daily === 0) return '0.00';
+                    const yearly = daily * 365;
+                    if (yearly >= 1000) {
+                        return (yearly / 1000).toFixed(1) + 'k';
+                    }
+                    return yearly.toFixed(0);
+                });
+
+                const efficiency = computed(() => {
+                    if (workers.value.length === 0) return '0.0';
+                    let totalCpu = 0;
+                    let workerCount = 0;
+                    workers.value.forEach(worker => {
+                        const metrics = workerMetrics.value[worker.id];
+                        if (metrics && metrics.length > 0) {
+                            totalCpu += metrics[0]?.cpu_usage || 0;
+                            workerCount++;
+                        }
+                    });
+                    if (workerCount === 0) return '0.0';
+                    return (totalCpu / workerCount).toFixed(1);
+                });
+
+                const selectedWorkerMetrics = computed(() => {
+                    if (!selectedWorker.value) return [];
+                    return workerMetrics.value[selectedWorker.value.id] || [];
+                });
+
+                const avgWorkerPower = computed(() => {
+                    if (!selectedWorkerMetrics.value || selectedWorkerMetrics.value.length === 0) return '0.0';
+                    const validMetrics = selectedWorkerMetrics.value.filter(m => m.power_watts !== null && m.power_watts !== undefined);
+                    if (validMetrics.length === 0) return '0.0';
+                    const sum = validMetrics.reduce((s, m) => s + (m.power_watts || 0), 0);
+                    return (sum / validMetrics.length).toFixed(1);
+                });
+
+                const workerDailyCost = computed(() => {
+                    if (selectedWorkerMetrics.value.length === 0) return '0.00';
+                    const totalCost = selectedWorkerMetrics.value.reduce((s, m) => s + m.cost, 0);
+                    const avgCostPerMin = totalCost / selectedWorkerMetrics.value.length;
+                    return (avgCostPerMin * 60 * 24).toFixed(2);
+                });
+
+                const getWorkerPower = (workerId) => {
+                    const metrics = workerMetrics.value[workerId];
+                    return metrics?.[0]?.power_watts?.toFixed(1) || '0.0';
+                };
+
+                const getWorkerCpu = (workerId) => {
+                    const metrics = workerMetrics.value[workerId];
+                    return metrics?.[0]?.cpu_usage?.toFixed(1) || '0.0';
+                };
+
+                const getWorkerRam = (workerId) => {
+                    const metrics = workerMetrics.value[workerId];
+                    return metrics?.[0]?.ram_usage?.toFixed(1) || '0.0';
+                };
+
+                const showWorkerDetails = async (workerId) => {
+                    selectedWorker.value = workers.value.find(w => w.id === workerId);
+                    showDetailsModal.value = true;
+                    await nextTick();
+                    renderChart();
+                };
+
+                const projectWorkerCost = async (workerId, days) => {
+                    // This would call an API endpoint on the control panel
+                    // For now, show a mock projection
+                    projectionData.value = {
+                        period_days: days,
+                        totalCostFormatted: '€0.42',
+                        avgDailyCostFormatted: '€0.03/day',
+                        peakCostFormatted: '€0.19',
+                        offPeakCostFormatted: '€0.23',
+                        confidence: 'low',
+                        method: 'extrapolation'
+                    };
+                    showProjectionModal.value = true;
+                };
+
+                const renderChart = () => {
+                    const canvas = document.getElementById('powerChart');
+                    if (!canvas || !selectedWorkerMetrics.value.length) return;
+
+                    if (chartInstance) {
+                        chartInstance.destroy();
+                    }
+
+                    const labels = selectedWorkerMetrics.value.slice(0, 20).reverse().map(m => {
+                        const date = new Date(m.timestamp * 1000);
+                        return date.toLocaleTimeString();
+                    });
+                    const data = selectedWorkerMetrics.value.slice(0, 20).reverse().map(m => m.power_watts);
+
+                    chartInstance = new Chart(canvas, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Power (W)',
+                                data: data,
+                                borderColor: '#0ea5e9',
+                                tension: 0.4,
+                                fill: true,
+                                backgroundColor: 'rgba(14, 165, 233, 0.1)'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    display: false
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+                };
+
+                const refreshData = async () => {
+                    // Fetch workers from API
+                    try {
+                        const response = await fetch('/api/workers');
+                        workers.value = await response.json();
+                        
+                        // Fetch metrics for each worker
+                        for (const worker of workers.value) {
+                            const metricsResponse = await fetch(`/api/workers/${worker.id}/metrics`);
+                            workerMetrics.value[worker.id] = await metricsResponse.json();
+                        }
+                    } catch (error) {
+                        console.error('Failed to fetch data:', error);
+                    }
+                };
+
+                onMounted(() => {
+                    refreshData();
+                    // Auto-refresh every 30 seconds
+                    setInterval(refreshData, 30000);
+                });
+
+                return {
+                    workers,
+                    workerMetrics,
+                    showDetailsModal,
+                    showProjectionModal,
+                    selectedWorker,
+                    projectionData,
+                    totalPower,
+                    totalDailyCost,
+                    yearlyCost,
+                    efficiency,
+                    selectedWorkerMetrics,
+                    avgWorkerPower,
+                    workerDailyCost,
+                    getWorkerPower,
+                    getWorkerCpu,
+                    getWorkerRam,
+                    showWorkerDetails,
+                    projectWorkerCost,
+                    refreshData
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
