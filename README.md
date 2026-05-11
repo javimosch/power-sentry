@@ -99,7 +99,7 @@ systemctl status powersency-control-panel
 ```bash
 # Deploy worker to Proxmox host (via jump host if needed)
 cd proxmox-power-monitor
-./deploy.sh <proxmox-host> <jump-host>
+./deploy.sh <proxmox-host> [jump-host]    # jump-host is optional for direct access
 
 # SSH to worker and install with control panel URL
 ssh -o IdentitiesOnly=yes -o IdentityFile=~/.ssh/id_ed25519 -J ubuntu@<jump-host> root@<proxmox-host>
